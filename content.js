@@ -201,6 +201,7 @@
       const pageInfo = {
         url: window.location.href,
         title: document.title,
+        bodyText: document.body.textContent,
         isConferencePage: isLikelyConferencePage()
       };
       sendResponse({ success: true, data: pageInfo });
