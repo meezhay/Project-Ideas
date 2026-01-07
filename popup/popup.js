@@ -82,11 +82,14 @@ document.addEventListener('DOMContentLoaded', function() {
   }
 
   function performBasicAnalysis(url, pageContent) {
+    // Start with cautious score when we can't analyze page content
+    const startingScore = pageContent ? 100 : 60;
+
     const analysis = {
       url: url,
       riskLevel: 'low',
       flags: [],
-      score: 100,
+      score: startingScore,
       timestamp: new Date().toLocaleString()
     };
 
@@ -106,7 +109,10 @@ document.addEventListener('DOMContentLoaded', function() {
       { pattern: /no.{0,10}(peer.)?review/i, text: 'Claims no peer review' },
       { pattern: /instant.{0,10}acceptance/i, text: 'Promises instant acceptance' },
       { pattern: /accept.{0,10}all.{0,10}papers?/i, text: 'Accepts all submissions' },
-      { pattern: /pay.{0,10}to.{0,10}present/i, text: 'Pay-to-present model detected' }
+      { pattern: /pay.{0,10}to.{0,10}present/i, text: 'Pay-to-present model detected' },
+      { pattern: /scam/i, text: 'Website contains "scam" in URL' },
+      { pattern: /fake/i, text: 'Website contains "fake" in URL' },
+      { pattern: /fraud/i, text: 'Website contains "fraud" in URL' }
     ];
 
     // Check for medium-risk patterns (each -15 points)
@@ -127,19 +133,26 @@ document.addEventListener('DOMContentLoaded', function() {
       { pattern: /prestigious/i, text: 'Claims of prestige without evidence' }
     ];
 
-    // Known predatory indicators in URL
+    // Known predatory indicators in URL (heavy penalties)
     const suspiciousUrlPatterns = [
-      { pattern: /waset\.org/i, text: 'Domain associated with predatory conferences (WASET)' },
-      { pattern: /omics/i, text: 'Domain associated with predatory publishers' },
-      { pattern: /\.club$/i, text: 'Unusual TLD (.club) for academic conference' },
-      { pattern: /\d{4}\.com/i, text: 'Suspicious domain pattern with year' }
+      { pattern: /waset\.org/i, text: 'Domain associated with predatory conferences (WASET)', penalty: 40 },
+      { pattern: /omics/i, text: 'Domain associated with predatory publishers', penalty: 40 },
+      { pattern: /wasser/i, text: 'Domain associated with predatory conferences', penalty: 40 },
+      { pattern: /sciencefather/i, text: 'Known predatory conference organizer', penalty: 45 },
+      { pattern: /conferencealerts/i, text: 'Site known for promoting predatory conferences', penalty: 30 },
+      { pattern: /\.club$/i, text: 'Unusual TLD (.club) for academic conference', penalty: 20 },
+      { pattern: /\.xyz$/i, text: 'Unusual TLD (.xyz) for academic conference', penalty: 20 },
+      { pattern: /\.site$/i, text: 'Unusual TLD (.site) for academic conference', penalty: 20 },
+      { pattern: /\d{4}conf/i, text: 'Suspicious naming pattern', penalty: 15 },
+      { pattern: /worldconference/i, text: 'Generic "world conference" naming', penalty: 15 },
+      { pattern: /internationalconference[a-z]*\d+/i, text: 'Generic numbered conference naming', penalty: 20 }
     ];
 
-    // Check URL patterns
-    suspiciousUrlPatterns.forEach(({ pattern, text }) => {
+    // Check URL patterns (these work even without page content)
+    suspiciousUrlPatterns.forEach(({ pattern, text, penalty }) => {
       if (pattern.test(urlLower)) {
         analysis.flags.push('⚠️ ' + text);
-        analysis.score -= 35;
+        analysis.score -= penalty;
       }
     });
 
@@ -191,12 +204,16 @@ document.addEventListener('DOMContentLoaded', function() {
     // Add default message if no flags
     if (analysis.flags.length === 0) {
       if (!pageContent) {
-        analysis.flags.push('✓ No immediate URL red flags detected');
-        analysis.flags.push('ℹ️ Note: Could not analyze page content. Visit the site and check current page for full analysis');
+        analysis.flags.push('ℹ️ URL-only analysis performed (no page content available)');
+        analysis.flags.push('⚠️ Starting at 60/100 - Unable to verify legitimacy without page content');
+        analysis.flags.push('💡 Tip: Visit the site and click "Analyze This Page" for full analysis');
       } else {
         analysis.flags.push('✓ No major red flags detected in initial scan');
         analysis.flags.push('ℹ️ Manual verification still recommended');
       }
+    } else if (!pageContent) {
+      analysis.flags.push('ℹ️ Limited analysis - page content not available');
+      analysis.flags.push('💡 Visit the site for more comprehensive scanning');
     }
 
     return analysis;
