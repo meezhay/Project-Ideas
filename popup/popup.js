@@ -58,50 +58,145 @@ document.addEventListener('DOMContentLoaded', function() {
   function analyzeConference(url) {
     showLoading();
 
-    // Simulate analysis (placeholder for future implementation)
-    setTimeout(() => {
-      const analysis = performBasicAnalysis(url);
-      displayResults(analysis);
-    }, 1000);
+    // Try to get content from the current tab if URL matches
+    chrome.tabs.query({ active: true, currentWindow: true }, function(tabs) {
+      if (tabs[0] && tabs[0].url === url) {
+        // Get page info from content script
+        chrome.tabs.sendMessage(tabs[0].id, { action: 'getPageInfo' }, function(response) {
+          let pageContent = null;
+          if (chrome.runtime.lastError) {
+            console.log('Could not get page content:', chrome.runtime.lastError);
+          } else if (response && response.success) {
+            pageContent = response.data;
+          }
+
+          const analysis = performBasicAnalysis(url, pageContent);
+          displayResults(analysis);
+        });
+      } else {
+        // Analyze URL only
+        const analysis = performBasicAnalysis(url, null);
+        displayResults(analysis);
+      }
+    });
   }
 
-  function performBasicAnalysis(url) {
-    // Placeholder analysis - this will be enhanced later
-    const suspiciousKeywords = [
-      'guaranteed acceptance',
-      'easy publication',
-      'fast track',
-      'no review',
-      'instant acceptance',
-      'predatory'
-    ];
-
+  function performBasicAnalysis(url, pageContent) {
     const analysis = {
       url: url,
       riskLevel: 'low',
       flags: [],
-      score: 85,
+      score: 100,
       timestamp: new Date().toLocaleString()
     };
 
-    // Basic URL analysis
     const urlLower = url.toLowerCase();
+    let pageText = '';
+    let pageTitle = '';
 
-    if (urlLower.includes('scam') || urlLower.includes('fake')) {
-      analysis.flags.push('Suspicious keywords in URL');
-      analysis.riskLevel = 'high';
-      analysis.score = 25;
+    if (pageContent) {
+      pageText = (pageContent.title + ' ' + pageContent.bodyText || '').toLowerCase();
+      pageTitle = (pageContent.title || '').toLowerCase();
     }
 
-    if (!urlLower.includes('http')) {
-      analysis.flags.push('Invalid URL format');
+    // Check for high-risk patterns (each -30 points)
+    const highRiskPatterns = [
+      { pattern: /guaranteed?.{0,20}acceptance/i, text: 'Promises guaranteed acceptance' },
+      { pattern: /guaranteed?.{0,20}publication/i, text: 'Guarantees publication' },
+      { pattern: /no.{0,10}(peer.)?review/i, text: 'Claims no peer review' },
+      { pattern: /instant.{0,10}acceptance/i, text: 'Promises instant acceptance' },
+      { pattern: /accept.{0,10}all.{0,10}papers?/i, text: 'Accepts all submissions' },
+      { pattern: /pay.{0,10}to.{0,10}present/i, text: 'Pay-to-present model detected' }
+    ];
+
+    // Check for medium-risk patterns (each -15 points)
+    const mediumRiskPatterns = [
+      { pattern: /fast.{0,10}track/i, text: 'Fast-track publication offered' },
+      { pattern: /quick.{0,10}publication/i, text: 'Emphasizes quick publication' },
+      { pattern: /easy.{0,10}publication/i, text: 'Claims easy publication' },
+      { pattern: /publish.{0,10}(quickly|fast)/i, text: 'Promotes rapid publishing' },
+      { pattern: /(high|100%).{0,10}acceptance.{0,10}rate/i, text: 'Very high acceptance rate advertised' },
+      { pattern: /only.{0,10}\$?\d+.{0,10}(usd|dollars|euros)/i, text: 'Emphasizes low fees suspiciously' }
+    ];
+
+    // Check for warning signs (each -10 points)
+    const warningPatterns = [
+      { pattern: /submit.{0,20}(today|now|immediately)/i, text: 'Urgent submission pressure' },
+      { pattern: /limited.{0,10}slots?/i, text: 'Artificial scarcity tactics' },
+      { pattern: /world.?class/i, text: 'Excessive self-promotion' },
+      { pattern: /prestigious/i, text: 'Claims of prestige without evidence' }
+    ];
+
+    // Known predatory indicators in URL
+    const suspiciousUrlPatterns = [
+      { pattern: /waset\.org/i, text: 'Domain associated with predatory conferences (WASET)' },
+      { pattern: /omics/i, text: 'Domain associated with predatory publishers' },
+      { pattern: /\.club$/i, text: 'Unusual TLD (.club) for academic conference' },
+      { pattern: /\d{4}\.com/i, text: 'Suspicious domain pattern with year' }
+    ];
+
+    // Check URL patterns
+    suspiciousUrlPatterns.forEach(({ pattern, text }) => {
+      if (pattern.test(urlLower)) {
+        analysis.flags.push('⚠️ ' + text);
+        analysis.score -= 35;
+      }
+    });
+
+    // Check high-risk patterns
+    highRiskPatterns.forEach(({ pattern, text }) => {
+      if (pattern.test(pageText) || pattern.test(urlLower)) {
+        analysis.flags.push('🚨 ' + text);
+        analysis.score -= 30;
+      }
+    });
+
+    // Check medium-risk patterns
+    mediumRiskPatterns.forEach(({ pattern, text }) => {
+      if (pattern.test(pageText) || pattern.test(urlLower)) {
+        analysis.flags.push('⚠️ ' + text);
+        analysis.score -= 15;
+      }
+    });
+
+    // Check warning patterns
+    warningPatterns.forEach(({ pattern, text }) => {
+      if (pattern.test(pageText)) {
+        analysis.flags.push('⚡ ' + text);
+        analysis.score -= 10;
+      }
+    });
+
+    // Check for very broad scope (multiple unrelated fields)
+    if (pageText) {
+      const broadFields = ['engineering', 'medicine', 'business', 'arts', 'science', 'technology', 'education', 'law'];
+      const foundFields = broadFields.filter(field => pageText.includes(field));
+      if (foundFields.length >= 4) {
+        analysis.flags.push('⚠️ Unusually broad scope (covers ' + foundFields.length + ' different fields)');
+        analysis.score -= 20;
+      }
+    }
+
+    // Determine risk level based on score
+    analysis.score = Math.max(0, Math.min(100, analysis.score));
+
+    if (analysis.score >= 70) {
+      analysis.riskLevel = 'low';
+    } else if (analysis.score >= 40) {
       analysis.riskLevel = 'medium';
-      analysis.score = 50;
+    } else {
+      analysis.riskLevel = 'high';
     }
 
+    // Add default message if no flags
     if (analysis.flags.length === 0) {
-      analysis.flags.push('No immediate red flags detected');
-      analysis.flags.push('Manual review recommended');
+      if (!pageContent) {
+        analysis.flags.push('✓ No immediate URL red flags detected');
+        analysis.flags.push('ℹ️ Note: Could not analyze page content. Visit the site and check current page for full analysis');
+      } else {
+        analysis.flags.push('✓ No major red flags detected in initial scan');
+        analysis.flags.push('ℹ️ Manual verification still recommended');
+      }
     }
 
     return analysis;

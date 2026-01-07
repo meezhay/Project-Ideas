@@ -14,6 +14,17 @@ chrome.runtime.onInstalled.addListener((details) => {
   } else if (details.reason === 'update') {
     console.log('Academic Conference Check extension updated');
   }
+
+  // Create context menu
+  try {
+    chrome.contextMenus.create({
+      id: 'checkConference',
+      title: 'Check this conference with Academic Conference Check',
+      contexts: ['link', 'page']
+    });
+  } catch (error) {
+    console.error('Error creating context menu:', error);
+  }
 });
 
 // Listen for messages from content scripts or popup
@@ -96,25 +107,21 @@ function hashUrl(url) {
   return Math.abs(hash).toString(16);
 }
 
-// Context menu integration (optional)
-chrome.runtime.onInstalled.addListener(() => {
-  chrome.contextMenus.create({
-    id: 'checkConference',
-    title: 'Check this conference with Academic Conference Check',
-    contexts: ['link', 'page']
+// Context menu click handler
+if (chrome.contextMenus) {
+  chrome.contextMenus.onClicked.addListener((info, tab) => {
+    if (info.menuItemId === 'checkConference') {
+      const urlToCheck = info.linkUrl || info.pageUrl;
+
+      // Send message to content script
+      chrome.tabs.sendMessage(tab.id, {
+        action: 'highlightAsChecked',
+        url: urlToCheck
+      }).catch(error => {
+        console.log('Error sending message to tab:', error);
+      });
+    }
   });
-});
-
-chrome.contextMenus.onClicked.addListener((info, tab) => {
-  if (info.menuItemId === 'checkConference') {
-    const urlToCheck = info.linkUrl || info.pageUrl;
-
-    // Send message to content script or open popup with the URL
-    chrome.tabs.sendMessage(tab.id, {
-      action: 'highlightAsChecked',
-      url: urlToCheck
-    });
-  }
-});
+}
 
 console.log('Academic Conference Check background service worker loaded');
