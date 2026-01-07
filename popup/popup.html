@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Academic Conference Check</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Academic Conference Check</h1>
+      <p class="subtitle">Identify suspicious academic conferences</p>
+    </header>
+
+    <main>
+      <div class="check-section">
+        <input
+          type="text"
+          id="conferenceUrl"
+          placeholder="Enter conference website URL..."
+          class="url-input"
+        >
+        <button id="checkBtn" class="primary-btn">Check Conference</button>
+      </div>
+
+      <div id="results" class="results hidden">
+        <div class="result-header">
+          <h2>Analysis Results</h2>
+        </div>
+        <div id="resultContent" class="result-content">
+          <!-- Results will be displayed here -->
+        </div>
+      </div>
+
+      <div id="currentPageSection" class="current-page-section">
+        <h3>Check Current Page</h3>
+        <button id="checkCurrentPage" class="secondary-btn">Analyze This Page</button>
+        <div id="currentPageUrl" class="current-url"></div>
+      </div>
+
+      <div class="info-section">
+        <h3>Red Flags to Watch For:</h3>
+        <ul class="red-flags">
+          <li>Unusually broad scope or multiple unrelated topics</li>
+          <li>Very short review periods</li>
+          <li>Guaranteed acceptance promises</li>
+          <li>Unclear organizers or fake affiliations</li>
+          <li>Excessive publication fees</li>
+          <li>Poor website quality or grammar</li>
+        </ul>
+      </div>
+    </main>
+
+    <footer>
+      <p class="footer-text">v1.0.0 | Help identify predatory conferences</p>
+    </footer>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
