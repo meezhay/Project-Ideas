@@ -82,138 +82,50 @@ document.addEventListener('DOMContentLoaded', function() {
   }
 
   function performBasicAnalysis(url, pageContent) {
-    // Start with cautious score when we can't analyze page content
-    const startingScore = pageContent ? 100 : 60;
+    // Use the ML-inspired analyzer
+    const analyzer = new MLConferenceAnalyzer();
+    const result = analyzer.analyze(url, pageContent);
 
+    // Convert to format expected by display function
     const analysis = {
       url: url,
-      riskLevel: 'low',
+      riskLevel: result.riskLevel,
+      score: result.score,
+      confidence: result.confidence,
+      timestamp: new Date().toLocaleString(),
       flags: [],
-      score: startingScore,
-      timestamp: new Date().toLocaleString()
+      positiveSignals: [],
+      features: result.features
     };
 
-    const urlLower = url.toLowerCase();
-    let pageText = '';
-    let pageTitle = '';
-
-    if (pageContent) {
-      pageText = (pageContent.title + ' ' + pageContent.bodyText || '').toLowerCase();
-      pageTitle = (pageContent.title || '').toLowerCase();
-    }
-
-    // Check for high-risk patterns (each -30 points)
-    const highRiskPatterns = [
-      { pattern: /guaranteed?.{0,20}acceptance/i, text: 'Promises guaranteed acceptance' },
-      { pattern: /guaranteed?.{0,20}publication/i, text: 'Guarantees publication' },
-      { pattern: /no.{0,10}(peer.)?review/i, text: 'Claims no peer review' },
-      { pattern: /instant.{0,10}acceptance/i, text: 'Promises instant acceptance' },
-      { pattern: /accept.{0,10}all.{0,10}papers?/i, text: 'Accepts all submissions' },
-      { pattern: /pay.{0,10}to.{0,10}present/i, text: 'Pay-to-present model detected' },
-      { pattern: /scam/i, text: 'Website contains "scam" in URL' },
-      { pattern: /fake/i, text: 'Website contains "fake" in URL' },
-      { pattern: /fraud/i, text: 'Website contains "fraud" in URL' }
-    ];
-
-    // Check for medium-risk patterns (each -15 points)
-    const mediumRiskPatterns = [
-      { pattern: /fast.{0,10}track/i, text: 'Fast-track publication offered' },
-      { pattern: /quick.{0,10}publication/i, text: 'Emphasizes quick publication' },
-      { pattern: /easy.{0,10}publication/i, text: 'Claims easy publication' },
-      { pattern: /publish.{0,10}(quickly|fast)/i, text: 'Promotes rapid publishing' },
-      { pattern: /(high|100%).{0,10}acceptance.{0,10}rate/i, text: 'Very high acceptance rate advertised' },
-      { pattern: /only.{0,10}\$?\d+.{0,10}(usd|dollars|euros)/i, text: 'Emphasizes low fees suspiciously' }
-    ];
-
-    // Check for warning signs (each -10 points)
-    const warningPatterns = [
-      { pattern: /submit.{0,20}(today|now|immediately)/i, text: 'Urgent submission pressure' },
-      { pattern: /limited.{0,10}slots?/i, text: 'Artificial scarcity tactics' },
-      { pattern: /world.?class/i, text: 'Excessive self-promotion' },
-      { pattern: /prestigious/i, text: 'Claims of prestige without evidence' }
-    ];
-
-    // Known predatory indicators in URL (heavy penalties)
-    const suspiciousUrlPatterns = [
-      { pattern: /waset\.org/i, text: 'Domain associated with predatory conferences (WASET)', penalty: 40 },
-      { pattern: /omics/i, text: 'Domain associated with predatory publishers', penalty: 40 },
-      { pattern: /wasser/i, text: 'Domain associated with predatory conferences', penalty: 40 },
-      { pattern: /sciencefather/i, text: 'Known predatory conference organizer', penalty: 45 },
-      { pattern: /conferencealerts/i, text: 'Site known for promoting predatory conferences', penalty: 30 },
-      { pattern: /\.club$/i, text: 'Unusual TLD (.club) for academic conference', penalty: 20 },
-      { pattern: /\.xyz$/i, text: 'Unusual TLD (.xyz) for academic conference', penalty: 20 },
-      { pattern: /\.site$/i, text: 'Unusual TLD (.site) for academic conference', penalty: 20 },
-      { pattern: /\d{4}conf/i, text: 'Suspicious naming pattern', penalty: 15 },
-      { pattern: /worldconference/i, text: 'Generic "world conference" naming', penalty: 15 },
-      { pattern: /internationalconference[a-z]*\d+/i, text: 'Generic numbered conference naming', penalty: 20 }
-    ];
-
-    // Check URL patterns (these work even without page content)
-    suspiciousUrlPatterns.forEach(({ pattern, text, penalty }) => {
-      if (pattern.test(urlLower)) {
-        analysis.flags.push('⚠️ ' + text);
-        analysis.score -= penalty;
-      }
+    // Combine flags with severity icons
+    result.flags.forEach(flag => {
+      analysis.flags.push(`${flag.icon} ${flag.text}`);
     });
 
-    // Check high-risk patterns
-    highRiskPatterns.forEach(({ pattern, text }) => {
-      if (pattern.test(pageText) || pattern.test(urlLower)) {
-        analysis.flags.push('🚨 ' + text);
-        analysis.score -= 30;
-      }
+    // Add positive signals
+    result.positiveSignals.forEach(signal => {
+      analysis.positiveSignals.push(`${signal.icon} ${signal.text}`);
     });
 
-    // Check medium-risk patterns
-    mediumRiskPatterns.forEach(({ pattern, text }) => {
-      if (pattern.test(pageText) || pattern.test(urlLower)) {
-        analysis.flags.push('⚠️ ' + text);
-        analysis.score -= 15;
-      }
-    });
-
-    // Check warning patterns
-    warningPatterns.forEach(({ pattern, text }) => {
-      if (pattern.test(pageText)) {
-        analysis.flags.push('⚡ ' + text);
-        analysis.score -= 10;
-      }
-    });
-
-    // Check for very broad scope (multiple unrelated fields)
-    if (pageText) {
-      const broadFields = ['engineering', 'medicine', 'business', 'arts', 'science', 'technology', 'education', 'law'];
-      const foundFields = broadFields.filter(field => pageText.includes(field));
-      if (foundFields.length >= 4) {
-        analysis.flags.push('⚠️ Unusually broad scope (covers ' + foundFields.length + ' different fields)');
-        analysis.score -= 20;
-      }
-    }
-
-    // Determine risk level based on score
-    analysis.score = Math.max(0, Math.min(100, analysis.score));
-
-    if (analysis.score >= 70) {
-      analysis.riskLevel = 'low';
-    } else if (analysis.score >= 40) {
-      analysis.riskLevel = 'medium';
+    // Add informative messages based on analysis type
+    if (!pageContent) {
+      analysis.flags.push('ℹ️ URL-only analysis - Visit site for comprehensive scan');
+      analysis.flags.push('💡 Confidence: ' + result.confidence + '%');
     } else {
-      analysis.riskLevel = 'high';
+      analysis.flags.push('ℹ️ Full page analysis completed');
+      analysis.flags.push('💡 Analysis confidence: ' + result.confidence + '%');
     }
 
-    // Add default message if no flags
-    if (analysis.flags.length === 0) {
+    // Add no flags message if clean
+    if (result.flags.length === 0 && result.positiveSignals.length === 0) {
       if (!pageContent) {
-        analysis.flags.push('ℹ️ URL-only analysis performed (no page content available)');
-        analysis.flags.push('⚠️ Starting at 60/100 - Unable to verify legitimacy without page content');
-        analysis.flags.push('💡 Tip: Visit the site and click "Analyze This Page" for full analysis');
+        analysis.flags.push('⚠️ No page content available for detailed analysis');
+        analysis.flags.push('💡 Tip: Visit the site and click "Analyze This Page"');
       } else {
-        analysis.flags.push('✓ No major red flags detected in initial scan');
-        analysis.flags.push('ℹ️ Manual verification still recommended');
+        analysis.flags.push('✓ No major red flags detected');
+        analysis.flags.push('ℹ️ Always verify conference through multiple sources');
       }
-    } else if (!pageContent) {
-      analysis.flags.push('ℹ️ Limited analysis - page content not available');
-      analysis.flags.push('💡 Visit the site for more comprehensive scanning');
     }
 
     return analysis;
@@ -225,11 +137,50 @@ document.addEventListener('DOMContentLoaded', function() {
     const riskClass = `risk-${analysis.riskLevel}`;
     const riskText = analysis.riskLevel.charAt(0).toUpperCase() + analysis.riskLevel.slice(1);
 
-    let flagsHtml = '<ul style="margin-top: 10px; padding-left: 20px;">';
-    analysis.flags.forEach(flag => {
-      flagsHtml += `<li style="margin: 5px 0; font-size: 12px;">${flag}</li>`;
-    });
-    flagsHtml += '</ul>';
+    // Build red flags section
+    let flagsHtml = '';
+    if (analysis.flags && analysis.flags.length > 0) {
+      flagsHtml = '<ul style="margin-top: 10px; padding-left: 20px; list-style: none;">';
+      analysis.flags.forEach(flag => {
+        flagsHtml += `<li style="margin: 5px 0; font-size: 12px;">${flag}</li>`;
+      });
+      flagsHtml += '</ul>';
+    }
+
+    // Build positive signals section
+    let positiveHtml = '';
+    if (analysis.positiveSignals && analysis.positiveSignals.length > 0) {
+      positiveHtml = `
+        <div style="margin-top: 15px; padding: 10px; background: #d4edda; border-radius: 6px; border-left: 4px solid #28a745;">
+          <strong style="color: #155724;">✓ Positive Indicators:</strong>
+          <ul style="margin-top: 5px; padding-left: 20px; list-style: none;">
+            ${analysis.positiveSignals.map(signal =>
+              `<li style="margin: 3px 0; font-size: 11px; color: #155724;">${signal}</li>`
+            ).join('')}
+          </ul>
+        </div>
+      `;
+    }
+
+    // Build confidence indicator
+    const confidenceColor = analysis.confidence >= 80 ? '#28a745' :
+                           analysis.confidence >= 60 ? '#ffc107' : '#dc3545';
+    const confidenceBar = `
+      <div style="margin-top: 10px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
+          <strong>Analysis Confidence:</strong>
+          <span style="font-size: 12px; color: ${confidenceColor}; font-weight: bold;">${analysis.confidence}%</span>
+        </div>
+        <div style="width: 100%; height: 6px; background: #e0e0e0; border-radius: 3px; overflow: hidden;">
+          <div style="width: ${analysis.confidence}%; height: 100%; background: ${confidenceColor}; transition: width 0.3s;"></div>
+        </div>
+      </div>
+    `;
+
+    // Show analysis method
+    const analysisMethod = analysis.features ?
+      '<div style="margin-top: 8px; font-size: 11px; color: #666;"><strong>Analysis Method:</strong> Machine Learning-Inspired Multi-Signal Detection</div>' :
+      '<div style="margin-top: 8px; font-size: 11px; color: #666;"><strong>Analysis Method:</strong> Basic Pattern Matching</div>';
 
     resultContentDiv.innerHTML = `
       <div>
@@ -239,17 +190,20 @@ document.addEventListener('DOMContentLoaded', function() {
         <strong>Risk Level:</strong> <span class="risk-badge ${riskClass}">${riskText} Risk</span>
       </div>
       <div style="margin-top: 10px;">
-        <strong>Trust Score:</strong> ${analysis.score}/100
+        <strong>Trust Score:</strong> <span style="font-size: 18px; font-weight: bold; color: ${analysis.score >= 70 ? '#28a745' : analysis.score >= 40 ? '#ffc107' : '#dc3545'}">${analysis.score}/100</span>
       </div>
-      <div style="margin-top: 10px;">
-        <strong>Findings:</strong>
+      ${analysis.confidence ? confidenceBar : ''}
+      ${analysisMethod}
+      ${positiveHtml}
+      <div style="margin-top: ${positiveHtml ? '10px' : '15px'};">
+        <strong>${analysis.flags.length > 0 ? '⚠️ Red Flags & Info:' : 'ℹ️ Analysis Results:'}</strong>
         ${flagsHtml}
       </div>
       <div style="margin-top: 10px; font-size: 11px; color: #666;">
         <em>Analyzed: ${analysis.timestamp}</em>
       </div>
       <div style="margin-top: 15px; padding: 10px; background: #e7f3ff; border-radius: 6px; font-size: 11px;">
-        <strong>Note:</strong> This is a basic analysis. Always verify conference legitimacy through multiple sources, check organizer credentials, and consult with colleagues.
+        <strong>💡 Important:</strong> This analysis uses ML-inspired algorithms but should not be your only verification method. Always check organizer credentials, consult colleagues, and verify through multiple sources.
       </div>
     `;
   }
