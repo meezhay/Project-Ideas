@@ -95,12 +95,13 @@ document.addEventListener('DOMContentLoaded', function() {
       timestamp: new Date().toLocaleString(),
       flags: [],
       positiveSignals: [],
-      features: result.features
+      features: result.features,
+      conferenceInfo: result.conferenceInfo
     };
 
     // Combine flags with severity icons
     result.flags.forEach(flag => {
-      analysis.flags.push(`${flag.icon} ${flag.text}`);
+      analysis.flags.push({ text: `${flag.icon} ${flag.text}`, severity: flag.severity });
     });
 
     // Add positive signals
@@ -110,21 +111,21 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Add informative messages based on analysis type
     if (!pageContent) {
-      analysis.flags.push('ℹ️ URL-only analysis - Visit site for comprehensive scan');
-      analysis.flags.push('💡 Confidence: ' + result.confidence + '%');
+      analysis.flags.push({ text: 'ℹ️ URL-only analysis - Visit site for comprehensive scan', severity: 'info' });
+      analysis.flags.push({ text: '💡 Confidence: ' + result.confidence + '%', severity: 'info' });
     } else {
-      analysis.flags.push('ℹ️ Full page analysis completed');
-      analysis.flags.push('💡 Analysis confidence: ' + result.confidence + '%');
+      analysis.flags.push({ text: 'ℹ️ Full page analysis completed', severity: 'info' });
+      analysis.flags.push({ text: '💡 Analysis confidence: ' + result.confidence + '%', severity: 'info' });
     }
 
     // Add no flags message if clean
     if (result.flags.length === 0 && result.positiveSignals.length === 0) {
       if (!pageContent) {
-        analysis.flags.push('⚠️ No page content available for detailed analysis');
-        analysis.flags.push('💡 Tip: Visit the site and click "Analyze This Page"');
+        analysis.flags.push({ text: '⚠️ No page content available for detailed analysis', severity: 'info' });
+        analysis.flags.push({ text: '💡 Tip: Visit the site and click "Analyze This Page"', severity: 'info' });
       } else {
-        analysis.flags.push('✓ No major red flags detected');
-        analysis.flags.push('ℹ️ Always verify conference through multiple sources');
+        analysis.flags.push({ text: '✓ No major red flags detected', severity: 'info' });
+        analysis.flags.push({ text: 'ℹ️ Always verify conference through multiple sources', severity: 'info' });
       }
     }
 
@@ -137,12 +138,79 @@ document.addEventListener('DOMContentLoaded', function() {
     const riskClass = `risk-${analysis.riskLevel}`;
     const riskText = analysis.riskLevel.charAt(0).toUpperCase() + analysis.riskLevel.slice(1);
 
-    // Build red flags section
+    // Build conference info section
+    let conferenceInfoHtml = '';
+    if (analysis.conferenceInfo && analysis.conferenceInfo.hasInfo) {
+      const info = analysis.conferenceInfo;
+      conferenceInfoHtml = `
+        <div style="margin-top: 15px; padding: 12px; background: #f8f9fa; border-radius: 6px; border-left: 4px solid #667eea;">
+          <strong style="color: #333;">📋 Conference Information:</strong>
+          <div style="margin-top: 8px; font-size: 11px;">
+            ${info.conferenceName ? `<div style="margin: 4px 0;"><strong>Name:</strong> ${info.conferenceName}</div>` : ''}
+            ${info.registrationFees.length > 0 ? `<div style="margin: 4px 0;"><strong>Fees:</strong> ${info.registrationFees.slice(0, 3).join(', ')}</div>` : ''}
+            ${info.submissionDeadlines.length > 0 ? `<div style="margin: 4px 0;"><strong>Deadlines:</strong> ${info.submissionDeadlines.slice(0, 2).join(', ')}</div>` : ''}
+            ${info.acceptanceNotification.length > 0 ? `<div style="margin: 4px 0;"><strong>Notification:</strong> ${info.acceptanceNotification[0]}</div>` : ''}
+            ${info.committeeInfo.length > 0 ? `<div style="margin: 4px 0;"><strong>Committee:</strong> ${info.committeeInfo[0]}</div>` : ''}
+          </div>
+        </div>
+      `;
+    }
+
+    // Build Search Conference button
+    const searchQuery = analysis.conferenceInfo && analysis.conferenceInfo.conferenceName ?
+      analysis.conferenceInfo.conferenceName + ' ' + new Date().getFullYear() + ' conference' :
+      'conference reviews ' + new Date().getFullYear();
+
+    const searchButtonHtml = `
+      <div style="margin-top: 15px;">
+        <button id="searchConferenceBtn" style="
+          width: 100%;
+          padding: 10px;
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          color: white;
+          border: none;
+          border-radius: 8px;
+          font-size: 13px;
+          font-weight: bold;
+          cursor: pointer;
+          transition: transform 0.2s;
+        " onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform='translateY(0)'">
+          🔍 Search for "${searchQuery}"
+        </button>
+      </div>
+    `;
+
+    // Build red flags section with color coding
     let flagsHtml = '';
     if (analysis.flags && analysis.flags.length > 0) {
       flagsHtml = '<ul style="margin-top: 10px; padding-left: 20px; list-style: none;">';
       analysis.flags.forEach(flag => {
-        flagsHtml += `<li style="margin: 5px 0; font-size: 12px;">${flag}</li>`;
+        const flagText = typeof flag === 'string' ? flag : flag.text;
+        const severity = typeof flag === 'object' ? flag.severity : 'info';
+
+        let bgColor = '#f8f9fa';
+        let textColor = '#333';
+        let borderColor = '#ddd';
+
+        if (severity === 'high') {
+          bgColor = '#f8d7da';
+          textColor = '#721c24';
+          borderColor = '#f5c6cb';
+        } else if (severity === 'medium') {
+          bgColor = '#fff3cd';
+          textColor = '#856404';
+          borderColor = '#ffc107';
+        }
+
+        flagsHtml += `<li style="
+          margin: 5px 0;
+          padding: 6px 8px;
+          font-size: 12px;
+          background: ${bgColor};
+          color: ${textColor};
+          border-left: 3px solid ${borderColor};
+          border-radius: 4px;
+        ">${flagText}</li>`;
       });
       flagsHtml += '</ul>';
     }
@@ -179,7 +247,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Show analysis method
     const analysisMethod = analysis.features ?
-      '<div style="margin-top: 8px; font-size: 11px; color: #666;"><strong>Analysis Method:</strong> Machine Learning-Inspired Multi-Signal Detection</div>' :
+      '<div style="margin-top: 8px; font-size: 11px; color: #666;"><strong>Analysis Method:</strong> ML-Inspired Multi-Signal Detection</div>' :
       '<div style="margin-top: 8px; font-size: 11px; color: #666;"><strong>Analysis Method:</strong> Basic Pattern Matching</div>';
 
     resultContentDiv.innerHTML = `
@@ -194,18 +262,29 @@ document.addEventListener('DOMContentLoaded', function() {
       </div>
       ${analysis.confidence ? confidenceBar : ''}
       ${analysisMethod}
+      ${conferenceInfoHtml}
+      ${searchButtonHtml}
       ${positiveHtml}
       <div style="margin-top: ${positiveHtml ? '10px' : '15px'};">
-        <strong>${analysis.flags.length > 0 ? '⚠️ Red Flags & Info:' : 'ℹ️ Analysis Results:'}</strong>
+        <strong>${analysis.flags.length > 0 ? '⚠️ Findings:' : 'ℹ️ Analysis Results:'}</strong>
         ${flagsHtml}
       </div>
       <div style="margin-top: 10px; font-size: 11px; color: #666;">
         <em>Analyzed: ${analysis.timestamp}</em>
       </div>
       <div style="margin-top: 15px; padding: 10px; background: #e7f3ff; border-radius: 6px; font-size: 11px;">
-        <strong>💡 Important:</strong> This analysis uses ML-inspired algorithms but should not be your only verification method. Always check organizer credentials, consult colleagues, and verify through multiple sources.
+        <strong>💡 Important:</strong> This uses ML-inspired algorithms. Always verify through multiple sources, check organizer credentials, and consult colleagues.
       </div>
     `;
+
+    // Add event listener for search button
+    const searchBtn = document.getElementById('searchConferenceBtn');
+    if (searchBtn) {
+      searchBtn.addEventListener('click', function() {
+        const googleSearchUrl = `https://www.google.com/search?q=${encodeURIComponent(searchQuery)}`;
+        chrome.tabs.create({ url: googleSearchUrl });
+      });
+    }
   }
 
   function showLoading() {
