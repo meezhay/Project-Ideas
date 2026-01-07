@@ -34,6 +34,7 @@ class MLConferenceAnalyzer {
    */
   analyze(url, pageContent) {
     const features = this.extractFeatures(url, pageContent);
+    const conferenceInfo = this.extractConferenceInfo(pageContent);
     const score = this.calculateScore(features);
     const riskLevel = this.determineRiskLevel(score);
     const explanation = this.generateExplanation(features);
@@ -42,6 +43,7 @@ class MLConferenceAnalyzer {
       score: Math.round(score),
       riskLevel,
       features,
+      conferenceInfo,
       flags: explanation.flags,
       positiveSignals: explanation.positiveSignals,
       confidence: this.calculateConfidence(features, pageContent),
@@ -249,6 +251,7 @@ class MLConferenceAnalyzer {
       urgentDeadline: false,
       broadScope: false,
       excessivePromises: false,
+      rapidAcceptance: false,
       count: 0,
       score: 100
     };
@@ -264,7 +267,8 @@ class MLConferenceAnalyzer {
     const mediumRiskPatterns = [
       { key: 'fastTrack', pattern: /fast.{0,10}track/i, penalty: 20 },
       { key: 'easyPublication', pattern: /easy.{0,10}publication/i, penalty: 20 },
-      { key: 'urgentDeadline', pattern: /submit.{0,15}(today|now|immediately|urgent)/i, penalty: 15 }
+      { key: 'urgentDeadline', pattern: /submit.{0,15}(today|now|immediately|urgent)/i, penalty: 15 },
+      { key: 'rapidAcceptance', pattern: /(fast|quick|rapid).{0,15}(review|acceptance|decision|notification)|submit.{0,10}anytime|rolling.{0,10}(submission|deadline)|accept.{0,10}within.{0,10}\d+.{0,10}(days|hours)/i, penalty: 18 }
     ];
 
     // Check all patterns
@@ -308,15 +312,45 @@ class MLConferenceAnalyzer {
    */
   analyzeContactInfo(pageContent) {
     const text = pageContent ? pageContent.bodyText || '' : '';
+    const textLower = text.toLowerCase();
 
     const features = {
       hasEmail: false,
       hasPhone: false,
       hasAddress: false,
       hasSuspiciousEmail: false,
+      hasWhatsApp: false,
+      whatsAppNumbers: [],
       emailQuality: 0,
       score: 50 // Neutral by default
     };
+
+    // WhatsApp detection (MAJOR RED FLAG for academic conferences)
+    const whatsappPatterns = [
+      /whatsapp/i,
+      /what'?s\s*app/i,
+      /wa\.me\//i,
+      /api\.whatsapp\.com/i,
+      /contact.{0,20}whatsapp/i,
+      /whatsapp.{0,20}(number|contact)/i,
+      /\+\d{1,3}[-.\s]?\d{1,4}[-.\s]?\d{1,4}[-.\s]?\d{1,9}.{0,30}whatsapp/i
+    ];
+
+    for (const pattern of whatsappPatterns) {
+      if (pattern.test(text)) {
+        features.hasWhatsApp = true;
+        features.score -= 40; // HUGE penalty - very unprofessional
+        break;
+      }
+    }
+
+    // Extract WhatsApp numbers if found
+    if (features.hasWhatsApp) {
+      const whatsappNumberMatch = text.match(/\+?\d{1,3}[-.\s]?\d{1,4}[-.\s]?\d{1,4}[-.\s]?\d{1,9}/g);
+      if (whatsappNumberMatch) {
+        features.whatsAppNumbers = whatsappNumberMatch.slice(0, 3); // Keep first 3
+      }
+    }
 
     // Email detection
     const emailRegex = /[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/gi;
@@ -415,6 +449,113 @@ class MLConferenceAnalyzer {
   }
 
   /**
+   * Extract Conference Information (fees, deadlines, committee)
+   */
+  extractConferenceInfo(pageContent) {
+    const text = pageContent ? pageContent.bodyText || '' : '';
+    const title = pageContent ? pageContent.title || '' : '';
+
+    const info = {
+      conferenceName: '',
+      registrationFees: [],
+      submissionDeadlines: [],
+      acceptanceNotification: [],
+      committeeInfo: [],
+      hasInfo: false
+    };
+
+    if (!text) return info;
+
+    // Extract conference name from title
+    const confNameMatch = title.match(/(.{5,100})(conference|symposium|workshop|congress)/i);
+    if (confNameMatch) {
+      info.conferenceName = confNameMatch[0].trim();
+      info.hasInfo = true;
+    }
+
+    // Extract registration fees
+    const feePatterns = [
+      /registration.{0,30}(\$|€|£|USD|EUR|GBP)\s*\d+/gi,
+      /(\$|€|£|USD|EUR|GBP)\s*\d+.{0,30}registration/gi,
+      /fee.{0,20}(\$|€|£|USD|EUR|GBP)\s*\d+/gi,
+      /(\$|€|£)\s*\d{2,5}/g
+    ];
+
+    feePatterns.forEach(pattern => {
+      const matches = text.match(pattern);
+      if (matches) {
+        matches.forEach(match => {
+          if (!info.registrationFees.includes(match) && info.registrationFees.length < 5) {
+            info.registrationFees.push(match.trim());
+            info.hasInfo = true;
+          }
+        });
+      }
+    });
+
+    // Extract submission deadlines
+    const deadlinePatterns = [
+      /submission.{0,20}deadline.{0,5}[:–-]?\s*\d{1,2}[-/]\d{1,2}[-/]\d{2,4}/gi,
+      /deadline.{0,20}submission.{0,5}[:–-]?\s*\d{1,2}[-/]\d{1,2}[-/]\d{2,4}/gi,
+      /paper.{0,20}submission.{0,10}[:–-]?\s*\d{1,2}[-/]\d{1,2}[-/]\d{2,4}/gi,
+      /submit.{0,10}by.{0,10}[:–-]?\s*\d{1,2}[-/]\d{1,2}[-/]\d{2,4}/gi,
+      /(january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{1,2},?\s+\d{4}/gi
+    ];
+
+    deadlinePatterns.forEach(pattern => {
+      const matches = text.match(pattern);
+      if (matches) {
+        matches.forEach(match => {
+          if (!info.submissionDeadlines.includes(match) && info.submissionDeadlines.length < 5) {
+            info.submissionDeadlines.push(match.trim());
+            info.hasInfo = true;
+          }
+        });
+      }
+    });
+
+    // Extract acceptance notification dates
+    const notificationPatterns = [
+      /notification.{0,20}(date|by).{0,5}[:–-]?\s*\d{1,2}[-/]\d{1,2}[-/]\d{2,4}/gi,
+      /acceptance.{0,20}notification.{0,10}[:–-]?\s*\d{1,2}[-/]\d{1,2}[-/]\d{2,4}/gi,
+      /author.{0,10}notification.{0,10}[:–-]?\s*\d{1,2}[-/]\d{1,2}[-/]\d{2,4}/gi
+    ];
+
+    notificationPatterns.forEach(pattern => {
+      const matches = text.match(pattern);
+      if (matches) {
+        matches.forEach(match => {
+          if (!info.acceptanceNotification.includes(match) && info.acceptanceNotification.length < 3) {
+            info.acceptanceNotification.push(match.trim());
+            info.hasInfo = true;
+          }
+        });
+      }
+    });
+
+    // Extract committee information
+    const committeePatterns = [
+      /(organizing|program|technical|scientific)\s+(committee|chair|co-chair)/gi,
+      /(chair|co-chair).{0,30}(committee|program)/gi,
+      /committee.{0,50}(Dr\.|Prof\.|Professor)/gi
+    ];
+
+    committeePatterns.forEach(pattern => {
+      const matches = text.match(pattern);
+      if (matches) {
+        matches.forEach(match => {
+          if (!info.committeeInfo.includes(match) && info.committeeInfo.length < 5) {
+            info.committeeInfo.push(match.trim());
+            info.hasInfo = true;
+          }
+        });
+      }
+    });
+
+    return info;
+  }
+
+  /**
    * Calculate final score using weighted features
    */
   calculateScore(features) {
@@ -499,6 +640,9 @@ class MLConferenceAnalyzer {
     if (features.patterns.fastTrack) {
       flags.push({ icon: '⚠️', text: 'Offers fast-track publication', severity: 'medium' });
     }
+    if (features.patterns.rapidAcceptance) {
+      flags.push({ icon: '⚠️', text: 'Rapid acceptance language (fast review, quick decision, submit anytime)', severity: 'medium' });
+    }
     if (features.patterns.broadScope) {
       flags.push({ icon: '⚠️', text: 'Unusually broad conference scope', severity: 'medium' });
     }
@@ -517,7 +661,10 @@ class MLConferenceAnalyzer {
       flags.push({ icon: '⚠️', text: 'Low content professionalism score', severity: 'medium' });
     }
 
-    // Contact flags
+    // Contact flags - WhatsApp is a MAJOR red flag
+    if (features.contact.hasWhatsApp) {
+      flags.push({ icon: '🚨', text: 'Uses WhatsApp for contact (MAJOR RED FLAG - highly unprofessional)', severity: 'high' });
+    }
     if (features.contact.hasSuspiciousEmail) {
       flags.push({ icon: '⚠️', text: 'Uses free email service (unprofessional)', severity: 'medium' });
     }
