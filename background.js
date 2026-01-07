@@ -27,6 +27,21 @@ chrome.runtime.onInstalled.addListener((details) => {
   }
 });
 
+// Context menu click handler - using chrome.contextMenus API safely
+chrome.contextMenus?.onClicked.addListener((info, tab) => {
+  if (info.menuItemId === 'checkConference') {
+    const urlToCheck = info.linkUrl || info.pageUrl;
+
+    // Send message to content script
+    chrome.tabs.sendMessage(tab.id, {
+      action: 'highlightAsChecked',
+      url: urlToCheck
+    }).catch(error => {
+      console.log('Error sending message to tab:', error);
+    });
+  }
+});
+
 // Listen for messages from content scripts or popup
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'analyzeConference') {
@@ -105,23 +120,6 @@ function hashUrl(url) {
     hash = hash & hash;
   }
   return Math.abs(hash).toString(16);
-}
-
-// Context menu click handler
-if (chrome.contextMenus) {
-  chrome.contextMenus.onClicked.addListener((info, tab) => {
-    if (info.menuItemId === 'checkConference') {
-      const urlToCheck = info.linkUrl || info.pageUrl;
-
-      // Send message to content script
-      chrome.tabs.sendMessage(tab.id, {
-        action: 'highlightAsChecked',
-        url: urlToCheck
-      }).catch(error => {
-        console.log('Error sending message to tab:', error);
-      });
-    }
-  });
 }
 
 console.log('Academic Conference Check background service worker loaded');
