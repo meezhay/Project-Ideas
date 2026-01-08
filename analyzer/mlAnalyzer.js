@@ -1,16 +1,17 @@
 /**
  * Machine Learning-Inspired Conference Analyzer
  * Uses multi-signal feature extraction and weighted scoring
+ * SCORING: Starts at 50 (neutral), goes down for red flags, up only for strong legitimacy signals
  */
 
 class MLConferenceAnalyzer {
   constructor() {
-    // Feature weights (learned from known predatory patterns)
+    // Feature weights
     this.weights = {
-      domainQuality: 0.25,
-      contentQuality: 0.30,
-      suspiciousPatterns: 0.35,
-      contactInfo: 0.10
+      domainQuality: 0.30,
+      contentQuality: 0.25,
+      suspiciousPatterns: 0.30,
+      contactInfo: 0.15
     };
 
     // Known predatory domains
@@ -20,10 +21,13 @@ class MLConferenceAnalyzer {
     ];
 
     // Suspicious TLDs
-    this.suspiciousTlds = ['.club', '.xyz', '.site', '.info', '.biz', '.top'];
+    this.suspiciousTlds = ['.club', '.xyz', '.site', '.info', '.biz', '.top', '.online'];
 
-    // High-quality TLDs (academic)
+    // Academic/Legitimate TLDs (only these get positive points)
     this.academicTlds = ['.edu', '.ac.uk', '.ac.', '.edu.'];
+
+    // Legitimate conference organizers
+    this.legitimateOrganizers = ['ieee', 'acm', 'springer', 'elsevier', 'wiley'];
   }
 
   /**
@@ -68,6 +72,7 @@ class MLConferenceAnalyzer {
 
   /**
    * Domain Quality Analysis
+   * Starts at 50 (neutral), only goes up for academic domains
    */
   analyzeDomain(url) {
     const urlLower = url.toLowerCase();
@@ -75,11 +80,12 @@ class MLConferenceAnalyzer {
       isPredatory: false,
       hasSuspiciousTld: false,
       hasAcademicTld: false,
+      hasLegitimateOrganizer: false,
       hasGenericNaming: false,
       hasNumbersInDomain: false,
       domainLength: 0,
       subdomainCount: 0,
-      score: 100
+      score: 50  // Start neutral
     };
 
     try {
@@ -90,11 +96,20 @@ class MLConferenceAnalyzer {
       features.domainLength = hostname.length;
       features.subdomainCount = Math.max(0, parts.length - 2);
 
-      // Check known predatory domains
+      // Check known predatory domains - MAJOR penalty
       for (const predatory of this.knownPredatoryDomains) {
         if (hostname.includes(predatory)) {
           features.isPredatory = true;
-          features.score -= 50;
+          features.score -= 40;
+          break;
+        }
+      }
+
+      // Check for legitimate organizers - MAJOR bonus
+      for (const legit of this.legitimateOrganizers) {
+        if (hostname.includes(legit)) {
+          features.hasLegitimateOrganizer = true;
+          features.score += 30;
           break;
         }
       }
@@ -108,35 +123,38 @@ class MLConferenceAnalyzer {
         }
       }
 
+      // Academic TLDs - significant bonus
       for (const tld of this.academicTlds) {
         if (hostname.includes(tld)) {
           features.hasAcademicTld = true;
-          features.score += 20;
+          features.score += 35;
           break;
         }
       }
 
-      // Check for generic naming patterns
+      // Check for generic naming patterns - HIGH RISK
       const genericPatterns = [
         /worldconference/i,
         /internationalconf/i,
         /globalconference/i,
         /conference\d{4}/i,
-        /\d{4}conference/i
+        /\d{4}conference/i,
+        /register(now)?\./, // Registration subdomain
+        /registration\./
       ];
 
       for (const pattern of genericPatterns) {
         if (pattern.test(hostname)) {
           features.hasGenericNaming = true;
-          features.score -= 15;
+          features.score -= 20;
           break;
         }
       }
 
-      // Numbers in domain (suspicious for conferences)
+      // Numbers in domain (suspicious)
       if (/\d/.test(hostname.replace(/\.(com|org|net)/, ''))) {
         features.hasNumbersInDomain = true;
-        features.score -= 10;
+        features.score -= 15;
       }
 
       // Very long domains are suspicious
@@ -150,7 +168,7 @@ class MLConferenceAnalyzer {
       }
 
     } catch (error) {
-      features.score = 50; // Can't parse URL properly
+      features.score = 30; // Can't parse URL - suspicious
     }
 
     features.score = Math.max(0, Math.min(100, features.score));
@@ -159,6 +177,7 @@ class MLConferenceAnalyzer {
 
   /**
    * Content Quality Analysis
+   * Starts at 50 (neutral)
    */
   analyzeContent(pageContent) {
     const features = {
@@ -169,12 +188,15 @@ class MLConferenceAnalyzer {
       capsRatio: 0,
       punctuationRatio: 0,
       repeatedPhrases: 0,
-      professionalismScore: 100,
-      score: 100
+      professionalismScore: 50,
+      hasMissingTitle: false,
+      isRegistrationPage: false,
+      hasRegisterUrgency: false,
+      score: 50  // Start neutral
     };
 
     if (!pageContent || !pageContent.bodyText) {
-      features.score = 60; // Neutral when no content
+      features.score = 40; // Suspicious when no content
       return features;
     }
 
@@ -182,11 +204,43 @@ class MLConferenceAnalyzer {
     const text = pageContent.bodyText || '';
     const title = pageContent.title || '';
     const fullText = title + ' ' + text;
+    const textLower = fullText.toLowerCase();
 
     features.textLength = text.length;
 
+    // CRITICAL: Missing conference title/name - MAJOR red flag
+    if (!title || title.length < 10 || !/conference|symposium|workshop|congress/i.test(title)) {
+      features.hasMissingTitle = true;
+      features.score -= 25;
+    }
+
+    // CRITICAL: Registration page as landing page - MAJOR red flag
+    const registrationIndicators = [
+      /register\s*(now|today|here)/i,
+      /registration\s*(form|page)/i,
+      /payment\s*(details|information)/i,
+      /credit\s*card/i,
+      /total\s*(amount|fee|cost)/i
+    ];
+
+    let regIndicatorCount = 0;
+    registrationIndicators.forEach(pattern => {
+      if (pattern.test(textLower)) regIndicatorCount++;
+    });
+
+    if (regIndicatorCount >= 2 && features.textLength < 1000) {
+      features.isRegistrationPage = true;
+      features.score -= 30; // Bare registration form is HIGHLY suspicious
+    }
+
+    // Register now urgency - HIGH RISK
+    if (/register\s*now|register\s*today|limited\s*slots?|hurry|act\s*now/i.test(textLower)) {
+      features.hasRegisterUrgency = true;
+      features.score -= 20;
+    }
+
     if (features.textLength < 200) {
-      features.score -= 20; // Very short content is suspicious
+      features.score -= 15; // Very short content is suspicious
     }
 
     // Word analysis
@@ -253,7 +307,7 @@ class MLConferenceAnalyzer {
       excessivePromises: false,
       rapidAcceptance: false,
       count: 0,
-      score: 100
+      score: 50  // CHANGED: Start at neutral 50, not 100
     };
 
     // High-risk patterns
@@ -309,6 +363,8 @@ class MLConferenceAnalyzer {
 
   /**
    * Contact Information Analysis
+   * Starts at 50 (neutral)
+   * Generic emails (gmail, yahoo, etc.) are HIGH RISK, not positive
    */
   analyzeContactInfo(pageContent) {
     const text = pageContent ? pageContent.bodyText || '' : '';
@@ -318,10 +374,10 @@ class MLConferenceAnalyzer {
       hasEmail: false,
       hasPhone: false,
       hasAddress: false,
-      hasSuspiciousEmail: false,
+      hasGenericEmail: false, // Changed from hasSuspiciousEmail
       hasWhatsApp: false,
       whatsAppNumbers: [],
-      emailQuality: 0,
+      hasInstitutionalEmail: false,
       score: 50 // Neutral by default
     };
 
@@ -359,50 +415,53 @@ class MLConferenceAnalyzer {
     features.hasEmail = emails.length > 0;
 
     if (features.hasEmail) {
-      features.score += 15;
-
-      // Check email quality
-      const suspiciousEmailPatterns = [
+      // Check for generic/free email services - HIGH RISK for conferences
+      const genericEmailPatterns = [
         /@gmail\.com/i,
         /@yahoo\.com/i,
         /@hotmail\.com/i,
-        /@outlook\.com/i
+        /@outlook\.com/i,
+        /@aol\.com/i,
+        /@mail\.com/i,
+        /@protonmail\.com/i
       ];
 
       for (const email of emails) {
-        for (const pattern of suspiciousEmailPatterns) {
+        for (const pattern of genericEmailPatterns) {
           if (pattern.test(email)) {
-            features.hasSuspiciousEmail = true;
-            features.score -= 20; // Free email services are suspicious for conferences
+            features.hasGenericEmail = true;
+            features.score -= 25; // MAJOR penalty - unprofessional
             break;
           }
         }
+        if (features.hasGenericEmail) break;
       }
 
-      // Professional emails are good
-      if (!features.hasSuspiciousEmail && emails.length > 0) {
-        features.emailQuality = 80;
-        features.score += 10;
+      // Check for institutional email - POSITIVE signal
+      const institutionalPatterns = [
+        /@.+\.edu/i,
+        /@.+\.ac\./i,
+        /@.+university/i,
+        /@.+college/i,
+        /@ieee\.org/i,
+        /@acm\.org/i
+      ];
+
+      for (const email of emails) {
+        for (const pattern of institutionalPatterns) {
+          if (pattern.test(email)) {
+            features.hasInstitutionalEmail = true;
+            features.score += 20; // Bonus for institutional email
+            break;
+          }
+        }
+        if (features.hasInstitutionalEmail) break;
       }
     } else {
-      features.score -= 15; // No contact email is suspicious
+      features.score -= 10; // No email is suspicious
     }
 
-    // Phone number detection
-    const phoneRegex = /(\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/g;
-    features.hasPhone = phoneRegex.test(text);
-
-    if (features.hasPhone) {
-      features.score += 10;
-    }
-
-    // Address detection (simple check)
-    const addressKeywords = ['address', 'location', 'street', 'avenue', 'building'];
-    features.hasAddress = addressKeywords.some(keyword => text.toLowerCase().includes(keyword));
-
-    if (features.hasAddress) {
-      features.score += 5;
-    }
+    // Phone and address are NEUTRAL - don't add or subtract points
 
     features.score = Math.max(0, Math.min(100, features.score));
     return features;
@@ -461,6 +520,8 @@ class MLConferenceAnalyzer {
       submissionDeadlines: [],
       acceptanceNotification: [],
       committeeInfo: [],
+      hasIdenticalDeadlines: false,
+      hasCloseDeadlines: false,
       hasInfo: false
     };
 
@@ -552,28 +613,54 @@ class MLConferenceAnalyzer {
       }
     });
 
+    // Check for identical or suspiciously close deadlines (HIGH RISK)
+    if (info.submissionDeadlines.length >= 2) {
+      const deadlines = info.submissionDeadlines.map(d => d.toLowerCase());
+
+      // Check for identical deadlines
+      const uniqueDeadlines = new Set(deadlines);
+      if (uniqueDeadlines.size < deadlines.length) {
+        info.hasIdenticalDeadlines = true;
+      }
+
+      // Check if submission and notification are within 1-2 days
+      if (info.acceptanceNotification.length > 0) {
+        const allDates = [...deadlines, ...info.acceptanceNotification.map(d => d.toLowerCase())];
+        // If multiple deadlines mention same dates or very close dates, it's suspicious
+        const dateNumbers = allDates.join(' ').match(/\d{1,2}[-/]\d{1,2}[-/]\d{2,4}/g);
+        if (dateNumbers && dateNumbers.length >= 2) {
+          const uniqueDates = new Set(dateNumbers);
+          if (uniqueDates.size === 1) {
+            info.hasCloseDeadlines = true;
+          }
+        }
+      }
+    }
+
     return info;
   }
 
   /**
    * Calculate final score using weighted features
+   * FIXED: Neutral baseline (50) with penalties for bad signals
    */
   calculateScore(features) {
     let score = 0;
 
+    // Weighted combination of all feature scores (each starts at 50 neutral)
     score += features.domain.score * this.weights.domainQuality;
     score += features.content.score * this.weights.contentQuality;
     score += features.patterns.score * this.weights.suspiciousPatterns;
     score += features.contact.score * this.weights.contactInfo;
 
-    // Bonus for academic domains
-    if (features.domain.hasAcademicTld) {
-      score += 15;
-    }
-
-    // Penalty for multiple red flags
+    // Penalty for multiple red flags (3+ suspicious patterns)
     if (features.patterns.count >= 3) {
       score -= 20;
+    }
+
+    // Additional penalty for identical/close deadlines (MAJOR red flag)
+    if (features.conferenceInfo && (features.conferenceInfo.hasIdenticalDeadlines || features.conferenceInfo.hasCloseDeadlines)) {
+      score -= 25;
     }
 
     return Math.max(0, Math.min(100, score));
@@ -609,6 +696,8 @@ class MLConferenceAnalyzer {
 
   /**
    * Generate human-readable explanation
+   * FIXED: Generic emails and phone are NOT positive signals
+   * Only academic domains, institutional emails, and known organizers get positive points
    */
   generateExplanation(features) {
     const flags = [];
@@ -619,15 +708,38 @@ class MLConferenceAnalyzer {
       flags.push({ icon: '🚨', text: 'Known predatory conference domain', severity: 'high' });
     }
     if (features.domain.hasSuspiciousTld) {
-      flags.push({ icon: '⚠️', text: 'Unusual domain extension for academic conference', severity: 'medium' });
+      flags.push({ icon: '🚨', text: 'Unusual domain extension for academic conference (.club, .xyz, etc.)', severity: 'high' });
     }
     if (features.domain.hasGenericNaming) {
-      flags.push({ icon: '⚠️', text: 'Generic conference naming pattern detected', severity: 'medium' });
+      flags.push({ icon: '🚨', text: 'Generic conference naming pattern or registration subdomain', severity: 'high' });
     }
 
-    // Domain positives
+    // Domain positives - ONLY academic/legitimate
     if (features.domain.hasAcademicTld) {
       positiveSignals.push({ icon: '✅', text: 'Academic domain (.edu, .ac)', severity: 'positive' });
+    }
+    if (features.domain.hasLegitimateOrganizer) {
+      positiveSignals.push({ icon: '✅', text: 'Legitimate conference organizer (IEEE, ACM, Springer, etc.)', severity: 'positive' });
+    }
+
+    // Content flags - NEW CRITICAL FLAGS
+    if (features.content.hasMissingTitle) {
+      flags.push({ icon: '🚨', text: 'Missing conference title/name in page title', severity: 'high' });
+    }
+    if (features.content.isRegistrationPage) {
+      flags.push({ icon: '🚨', text: 'Bare registration page as landing page (MAJOR RED FLAG)', severity: 'high' });
+    }
+    if (features.content.hasRegisterUrgency) {
+      flags.push({ icon: '🚨', text: '"Register now" urgency language detected', severity: 'high' });
+    }
+    if (features.content.capsRatio > 0.3) {
+      flags.push({ icon: '⚠️', text: 'Excessive capital letters (unprofessional)', severity: 'medium' });
+    }
+    if (features.content.repeatedPhrases > 3) {
+      flags.push({ icon: '⚠️', text: 'Repetitive content detected', severity: 'medium' });
+    }
+    if (features.content.professionalismScore < 40) {
+      flags.push({ icon: '⚠️', text: 'Low content professionalism score', severity: 'medium' });
     }
 
     // Pattern flags
@@ -650,34 +762,27 @@ class MLConferenceAnalyzer {
       flags.push({ icon: '⚡', text: 'Urgent submission pressure tactics', severity: 'low' });
     }
 
-    // Content flags
-    if (features.content.capsRatio > 0.3) {
-      flags.push({ icon: '⚠️', text: 'Excessive capital letters (unprofessional)', severity: 'medium' });
-    }
-    if (features.content.repeatedPhrases > 3) {
-      flags.push({ icon: '⚠️', text: 'Repetitive content detected', severity: 'medium' });
-    }
-    if (features.content.professionalismScore < 50) {
-      flags.push({ icon: '⚠️', text: 'Low content professionalism score', severity: 'medium' });
-    }
-
-    // Contact flags - WhatsApp is a MAJOR red flag
+    // Contact flags - WhatsApp and generic email are HIGH RISK
     if (features.contact.hasWhatsApp) {
       flags.push({ icon: '🚨', text: 'Uses WhatsApp for contact (MAJOR RED FLAG - highly unprofessional)', severity: 'high' });
     }
-    if (features.contact.hasSuspiciousEmail) {
-      flags.push({ icon: '⚠️', text: 'Uses free email service (unprofessional)', severity: 'medium' });
+    if (features.contact.hasGenericEmail) {
+      flags.push({ icon: '🚨', text: 'Uses generic free email (Gmail, Yahoo, Outlook) instead of institutional', severity: 'high' });
     }
     if (!features.contact.hasEmail && features.content.hasContent) {
       flags.push({ icon: '⚡', text: 'No contact email found', severity: 'low' });
     }
 
-    // Contact positives
-    if (features.contact.hasEmail && !features.contact.hasSuspiciousEmail) {
-      positiveSignals.push({ icon: '✅', text: 'Professional email contact provided', severity: 'positive' });
+    // Contact positives - ONLY institutional email
+    if (features.contact.hasInstitutionalEmail) {
+      positiveSignals.push({ icon: '✅', text: 'Institutional email contact (.edu, .ac, @ieee.org, @acm.org)', severity: 'positive' });
     }
-    if (features.contact.hasPhone) {
-      positiveSignals.push({ icon: '✅', text: 'Phone contact information available', severity: 'positive' });
+
+    // Conference info flags - Identical/close deadlines (CRITICAL)
+    if (features.conferenceInfo && features.conferenceInfo.hasIdenticalDeadlines) {
+      flags.push({ icon: '🚨', text: 'Identical submission and notification deadlines (MAJOR RED FLAG)', severity: 'high' });
+    } else if (features.conferenceInfo && features.conferenceInfo.hasCloseDeadlines) {
+      flags.push({ icon: '🚨', text: 'Suspiciously close deadlines (within 1-2 days)', severity: 'high' });
     }
 
     // URL metadata flags
