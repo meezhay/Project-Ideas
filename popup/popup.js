@@ -55,30 +55,65 @@ document.addEventListener('DOMContentLoaded', function() {
     }
   }
 
-  function analyzeConference(url) {
+  async function analyzeConference(url) {
     showLoading();
 
-    // Try to get content from the current tab if URL matches
-    chrome.tabs.query({ active: true, currentWindow: true }, function(tabs) {
-      if (tabs[0] && tabs[0].url === url) {
-        // Get page info from content script
-        chrome.tabs.sendMessage(tabs[0].id, { action: 'getPageInfo' }, function(response) {
-          let pageContent = null;
-          if (chrome.runtime.lastError) {
-            console.log('Could not get page content:', chrome.runtime.lastError);
-          } else if (response && response.success) {
-            pageContent = response.data;
-          }
+    try {
+      // Try to get content from the current tab if URL matches
+      const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
 
-          const analysis = performBasicAnalysis(url, pageContent);
-          displayResults(analysis);
-        });
+      if (tabs[0] && tabs[0].url === url) {
+        let pageContent = null;
+
+        try {
+          // First, try to get page info from existing content script
+          const response = await chrome.tabs.sendMessage(tabs[0].id, { action: 'getPageInfo' });
+
+          if (response && response.success) {
+            pageContent = response.data;
+            console.log('Successfully extracted page content:', {
+              hasBodyText: !!pageContent.bodyText,
+              emailCount: pageContent.emails?.length || 0,
+              phoneCount: pageContent.phones?.length || 0,
+              hasWhatsApp: pageContent.hasWhatsApp
+            });
+          }
+        } catch (error) {
+          console.log('Content script not ready, trying to inject...', error);
+
+          // Try to inject content script if not already loaded
+          try {
+            await chrome.scripting.executeScript({
+              target: { tabId: tabs[0].id },
+              files: ['content.js']
+            });
+
+            // Wait a bit for script to initialize
+            await new Promise(resolve => setTimeout(resolve, 100));
+
+            // Try again to get page info
+            const retryResponse = await chrome.tabs.sendMessage(tabs[0].id, { action: 'getPageInfo' });
+            if (retryResponse && retryResponse.success) {
+              pageContent = retryResponse.data;
+              console.log('Successfully extracted page content after injection');
+            }
+          } catch (injectError) {
+            console.error('Could not inject content script:', injectError);
+            // Continue with URL-only analysis
+          }
+        }
+
+        const analysis = performBasicAnalysis(url, pageContent);
+        displayResults(analysis);
       } else {
-        // Analyze URL only
+        // Analyze URL only (different tab)
         const analysis = performBasicAnalysis(url, null);
         displayResults(analysis);
       }
-    });
+    } catch (error) {
+      console.error('Error during analysis:', error);
+      showError('Analysis failed: ' + error.message);
+    }
   }
 
   function performBasicAnalysis(url, pageContent) {
@@ -110,11 +145,26 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 
     // Add informative messages based on analysis type
-    if (!pageContent) {
-      analysis.flags.push({ text: 'ℹ️ URL-only analysis - Visit site for comprehensive scan', severity: 'info' });
-      analysis.flags.push({ text: '💡 Confidence: ' + result.confidence + '%', severity: 'info' });
+    if (!pageContent || !pageContent.bodyText) {
+      analysis.flags.push({ text: 'ℹ️ URL-only analysis - Visit site and click "Analyze This Page" for full scan', severity: 'info' });
+      analysis.flags.push({ text: '💡 Limited confidence without page content: ' + result.confidence + '%', severity: 'info' });
     } else {
-      analysis.flags.push({ text: 'ℹ️ Full page analysis completed', severity: 'info' });
+      const extractedData = [];
+      if (pageContent.emails && pageContent.emails.length > 0) {
+        extractedData.push(`${pageContent.emails.length} email(s)`);
+      }
+      if (pageContent.phones && pageContent.phones.length > 0) {
+        extractedData.push(`${pageContent.phones.length} phone(s)`);
+      }
+      if (pageContent.hasWhatsApp) {
+        extractedData.push('WhatsApp detected');
+      }
+      if (pageContent.deadlines && pageContent.deadlines.length > 0) {
+        extractedData.push(`${pageContent.deadlines.length} deadline(s)`);
+      }
+
+      const dataInfo = extractedData.length > 0 ? ` (Found: ${extractedData.join(', ')})` : '';
+      analysis.flags.push({ text: `✅ Full page content analyzed${dataInfo}`, severity: 'info' });
       analysis.flags.push({ text: '💡 Analysis confidence: ' + result.confidence + '%', severity: 'info' });
     }
 

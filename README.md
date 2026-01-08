@@ -10,20 +10,48 @@ Academic Conference Check is a Manifest V3 Chrome extension that analyzes confer
 
 ### Current Features (v1.0.0)
 
+- **Comprehensive Page Scanning**: Extracts and analyzes actual page content including:
+  - Email addresses (detects generic vs institutional emails)
+  - Phone numbers
+  - WhatsApp mentions and links
+  - Conference deadlines
+  - All links on the page
+  - Page headings and structure
+
+- **ML-Inspired Multi-Signal Analysis**: Advanced scoring system that evaluates:
+  - Domain quality (academic TLDs, legitimate organizers)
+  - Content quality (professionalism, completeness)
+  - Legitimacy markers (organizing institution, peer review process, past proceedings, established series, academic partnerships)
+  - Contact information (institutional vs generic emails, WhatsApp usage)
+  - Suspicious patterns (guaranteed acceptance, rapid review, urgency language)
+
+- **Risk Spectrum Display**: 6-level granular risk assessment:
+  - 80-100: Highly Trustworthy
+  - 70-79: Likely Legitimate
+  - 55-69: Moderate - Verify Carefully
+  - 40-54: Concerning - Exercise Caution
+  - 25-39: High Risk - Likely Predatory
+  - 0-24: Critical Risk - Avoid
+
+- **Smart Features**:
+  - Auto-injection of content script for page analysis
+  - Conference information extraction (fees, deadlines, committees)
+  - Google search integration for conference verification
+  - Color-coded warnings (red/yellow/green)
+  - Visual spectrum bar showing risk level
+  - Detailed positive and negative signal reporting
+
 - **Popup Interface**: Clean, user-friendly popup for manual conference checking
 - **URL Analysis**: Check any conference website URL for suspicious patterns
-- **Current Page Analysis**: Quickly analyze the page you're currently viewing
-- **Auto-Detection**: Automatically scans conference pages for suspicious keywords
-- **Warning Banner**: Displays in-page warnings when suspicious content is detected
-- **Risk Levels**: Classifies conferences as low, medium, or high risk
-- **Trust Score**: Provides a numerical score (0-100) indicating trustworthiness
+- **Current Page Analysis**: Full content extraction and analysis
+- **Auto-Detection**: Automatically scans conference pages and displays warning banners
+- **Trust Score**: Neutral-based scoring (50 baseline) with comprehensive signals
 
 ### Planned Features
 
 - Integration with known predatory conference databases
-- Machine learning-based analysis
 - Community reporting system
-- Detailed analysis reports
+- Detailed analysis reports export
 - Historical tracking of conferences
 - Browser notifications for flagged sites
 
@@ -60,16 +88,19 @@ Academic Conference Check is a Manifest V3 Chrome extension that analyzes confer
 Academic-Conference-Check/
 ├── manifest.json           # Extension manifest (Manifest V3)
 ├── background.js          # Background service worker
-├── content.js            # Content script (runs on web pages)
+├── content.js            # Content script (page data extraction)
+├── analyzer/
+│   └── mlAnalyzer.js     # ML-inspired multi-signal analyzer
 ├── popup/
 │   ├── popup.html        # Popup interface
 │   ├── popup.css         # Popup styling
-│   └── popup.js          # Popup functionality
+│   └── popup.js          # Popup functionality with risk spectrum
 ├── icons/
 │   ├── icon16.png        # 16x16 icon
 │   ├── icon48.png        # 48x48 icon
 │   └── icon128.png       # 128x128 icon
 ├── generate_icons.py     # Icon generator script
+├── ICONS_SETUP.md        # Icon setup documentation
 └── README.md            # This file
 ```
 
@@ -77,28 +108,60 @@ Academic-Conference-Check/
 
 ### Detection Methods
 
-The extension uses multiple detection strategies:
+The extension uses a sophisticated multi-signal analysis approach:
 
-1. **Keyword Analysis**: Scans for suspicious phrases like:
-   - "Guaranteed acceptance"
-   - "Fast track publication"
-   - "No peer review"
-   - "Easy publication"
+1. **Domain Quality Analysis** (30% weight):
+   - Academic TLDs (.edu, .ac.uk): +35 points
+   - Legitimate organizers (IEEE, ACM, Springer): +30 points
+   - Suspicious TLDs (.club, .xyz, .site): -25 points
+   - Generic naming patterns: -20 points
+   - Registration subdomains: Red flag
 
-2. **Pattern Matching**: Identifies common red flags:
-   - Unusually broad conference scope
-   - Multiple unrelated topics
-   - Vague organizer information
+2. **Content Quality Analysis** (25% weight):
+   - Organizing institution mentioned: +15 points
+   - Peer review process described: +12 points
+   - Past proceedings/publications: +18 points
+   - Established series (e.g., "15th Annual"): +20 points
+   - Academic partnerships: +25 points
+   - Missing conference title: -25 points
+   - Registration page as landing: -30 points
+   - Urgency language: -20 points
 
-3. **URL Analysis**: Checks domain patterns and structures
+3. **Contact Information Analysis** (15% weight):
+   - Institutional emails (.edu, @ieee.org): +20 points
+   - Generic emails (gmail, yahoo): -25 points (HIGH RISK)
+   - WhatsApp mentions: -40 points (CRITICAL)
 
-4. **Content Analysis**: Examines page content for predatory indicators
+4. **Suspicious Pattern Detection** (30% weight):
+   - Guaranteed acceptance: -35 points
+   - Fast track publication: -20 points
+   - Rapid acceptance language: -18 points
+   - Identical/close deadlines: -25 points
+   - Broad scope (5+ unrelated fields): -25 points
 
-### Warning Levels
+5. **Page Data Extraction**:
+   - All emails and phone numbers
+   - WhatsApp links and mentions
+   - Conference deadlines
+   - Registration fees
+   - Committee information
+   - All page links and headings
 
-- **Low Risk** (Green): No immediate red flags detected
-- **Medium Risk** (Yellow): Some suspicious indicators found
-- **High Risk** (Red): Multiple red flags or known predatory patterns
+### Scoring System
+
+- **Baseline**: 50 (neutral - assumes nothing)
+- **Range**: 0-100
+- **Approach**: Penalties for bad signals, bonuses for legitimacy markers
+- **Final Score**: Weighted combination of all feature categories
+
+### Risk Spectrum (6 Levels)
+
+- **80-100** (Dark Green): Highly Trustworthy - Strong legitimacy indicators
+- **70-79** (Green): Likely Legitimate - Positive signals outweigh concerns
+- **55-69** (Yellow): Moderate - Verify Carefully - Mixed signals
+- **40-54** (Orange): Concerning - Exercise Caution - Warning signs detected
+- **25-39** (Red): High Risk - Likely Predatory - Strong indicators
+- **0-24** (Dark Red): Critical Risk - Avoid - Severe red flags
 
 ## Usage Examples
 
@@ -163,16 +226,20 @@ The codebase is structured to make additions straightforward:
 
 ### Required Permissions
 
-- **activeTab**: Access the current tab's URL for analysis
+- **activeTab**: Access the current tab's URL and content for analysis
 - **storage**: Save analysis results and user preferences
-- **host_permissions**: Analyze conference websites
+- **contextMenus**: Right-click menu integration
+- **scripting**: Inject content script to extract page data
+- **host_permissions**: Analyze conference websites across all URLs
 
 ### Privacy Commitment
 
-- No data collection or external transmission
-- All analysis happens locally in your browser
-- No tracking or analytics
-- Open source for transparency
+- **Zero Data Collection**: No user data or browsing history is collected
+- **100% Local Analysis**: All processing happens in your browser
+- **No External Transmission**: Page data never leaves your computer
+- **No Tracking**: No analytics, cookies, or user tracking
+- **Open Source**: Full transparency - audit the code yourself
+- **No Server Required**: Works completely offline after installation
 
 ## Contributing
 
@@ -186,10 +253,12 @@ Contributions welcome! Areas where help is needed:
 
 ## Known Limitations
 
-- Currently uses basic pattern matching (ML features planned)
-- Icon files need to be generated separately
-- Limited to keyword-based detection in v1.0
-- No database integration yet
+- Icon files need to be generated separately before loading
+- No database of known predatory conferences (manual pattern detection only)
+- Chrome-only (Firefox/Edge support planned)
+- Scoring weights are manually tuned (not trained on labeled data)
+- Limited to text-based analysis (no image/PDF analysis)
+- Cannot analyze conferences behind login walls
 
 ## Roadmap
 

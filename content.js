@@ -189,6 +189,92 @@
     document.body.insertBefore(banner, document.body.firstChild);
   }
 
+  // Extract comprehensive page information
+  function extractPageData() {
+    const bodyText = document.body ? document.body.textContent : '';
+    const bodyHtml = document.body ? document.body.innerHTML : '';
+
+    // Extract all emails
+    const emailRegex = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
+    const emails = [...new Set((bodyText.match(emailRegex) || []))];
+
+    // Extract all phone numbers
+    const phoneRegex = /(\+?\d{1,3}[-.\s]?)?\(?\d{2,4}\)?[-.\s]?\d{2,4}[-.\s]?\d{2,9}/g;
+    const phones = [...new Set((bodyText.match(phoneRegex) || []))];
+
+    // Check for WhatsApp mentions and links
+    const whatsappPatterns = [
+      /whatsapp/gi,
+      /wa\.me/gi,
+      /api\.whatsapp\.com/gi,
+      /chat\.whatsapp\.com/gi
+    ];
+    const hasWhatsApp = whatsappPatterns.some(pattern => pattern.test(bodyText) || pattern.test(bodyHtml));
+    const whatsappLinks = [];
+    if (hasWhatsApp) {
+      const links = document.querySelectorAll('a[href*="whatsapp"], a[href*="wa.me"]');
+      links.forEach(link => {
+        whatsappLinks.push(link.href);
+      });
+    }
+
+    // Extract all links
+    const allLinks = [];
+    document.querySelectorAll('a[href]').forEach(link => {
+      if (link.href && !link.href.startsWith('javascript:')) {
+        allLinks.push({
+          href: link.href,
+          text: link.textContent.trim().substring(0, 100)
+        });
+      }
+    });
+
+    // Extract deadline dates (common patterns)
+    const deadlinePatterns = [
+      /deadline[:\s]+([A-Za-z]+\s+\d{1,2},?\s+\d{4})/gi,
+      /submission[:\s]+([A-Za-z]+\s+\d{1,2},?\s+\d{4})/gi,
+      /(january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{1,2},?\s+\d{4}/gi
+    ];
+    const deadlines = [];
+    deadlinePatterns.forEach(pattern => {
+      const matches = bodyText.matchAll(pattern);
+      for (const match of matches) {
+        if (match[1] || match[0]) {
+          deadlines.push(match[1] || match[0]);
+        }
+      }
+    });
+
+    // Extract meta description
+    const metaDesc = document.querySelector('meta[name="description"]');
+    const description = metaDesc ? metaDesc.getAttribute('content') : '';
+
+    // Extract headings
+    const headings = [];
+    document.querySelectorAll('h1, h2, h3').forEach(heading => {
+      const text = heading.textContent.trim();
+      if (text) {
+        headings.push(text);
+      }
+    });
+
+    return {
+      url: window.location.href,
+      title: document.title,
+      bodyText: bodyText,
+      bodyHtml: bodyHtml.substring(0, 50000), // Limit HTML size
+      description: description,
+      headings: headings.slice(0, 20), // Top 20 headings
+      emails: emails,
+      phones: phones,
+      hasWhatsApp: hasWhatsApp,
+      whatsappLinks: whatsappLinks,
+      links: allLinks.slice(0, 50), // Top 50 links
+      deadlines: [...new Set(deadlines)].slice(0, 10), // Unique deadlines
+      isConferencePage: isLikelyConferencePage()
+    };
+  }
+
   // Handle messages from background script or popup
   function handleMessage(request, sender, sendResponse) {
     if (request.action === 'highlightAsChecked') {
@@ -198,13 +284,20 @@
     }
 
     if (request.action === 'getPageInfo') {
-      const pageInfo = {
-        url: window.location.href,
-        title: document.title,
-        bodyText: document.body.textContent,
-        isConferencePage: isLikelyConferencePage()
-      };
-      sendResponse({ success: true, data: pageInfo });
+      try {
+        const pageInfo = extractPageData();
+        console.log('Academic Conference Check: Extracted page data', {
+          emailsFound: pageInfo.emails.length,
+          phonesFound: pageInfo.phones.length,
+          hasWhatsApp: pageInfo.hasWhatsApp,
+          linksFound: pageInfo.links.length,
+          deadlinesFound: pageInfo.deadlines.length
+        });
+        sendResponse({ success: true, data: pageInfo });
+      } catch (error) {
+        console.error('Error extracting page data:', error);
+        sendResponse({ success: false, error: error.message });
+      }
     }
 
     return true;
