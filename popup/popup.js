@@ -138,6 +138,41 @@ document.addEventListener('DOMContentLoaded', function() {
     const riskClass = `risk-${analysis.riskLevel}`;
     const riskText = analysis.riskLevel.charAt(0).toUpperCase() + analysis.riskLevel.slice(1);
 
+    // NEW: Risk spectrum visualization - granular categories
+    let riskCategory, riskDescription, spectrumColor, spectrumPosition;
+
+    if (analysis.score >= 80) {
+      riskCategory = 'Highly Trustworthy';
+      riskDescription = 'Strong legitimacy indicators detected';
+      spectrumColor = '#28a745';
+      spectrumPosition = 90;
+    } else if (analysis.score >= 70) {
+      riskCategory = 'Likely Legitimate';
+      riskDescription = 'Positive signals outweigh concerns';
+      spectrumColor = '#5cb85c';
+      spectrumPosition = 75;
+    } else if (analysis.score >= 55) {
+      riskCategory = 'Moderate - Verify Carefully';
+      riskDescription = 'Mixed signals - additional verification recommended';
+      spectrumColor = '#ffc107';
+      spectrumPosition = 60;
+    } else if (analysis.score >= 40) {
+      riskCategory = 'Concerning - Exercise Caution';
+      riskDescription = 'Multiple warning signs detected';
+      spectrumColor = '#ff9800';
+      spectrumPosition = 40;
+    } else if (analysis.score >= 25) {
+      riskCategory = 'High Risk - Likely Predatory';
+      riskDescription = 'Strong predatory conference indicators';
+      spectrumColor = '#f44336';
+      spectrumPosition = 20;
+    } else {
+      riskCategory = 'Critical Risk - Avoid';
+      riskDescription = 'Severe red flags - likely scam';
+      spectrumColor = '#d32f2f';
+      spectrumPosition = 10;
+    }
+
     // Build conference info section
     let conferenceInfoHtml = '';
     if (analysis.conferenceInfo && analysis.conferenceInfo.hasInfo) {
@@ -254,12 +289,44 @@ document.addEventListener('DOMContentLoaded', function() {
       <div>
         <strong>URL:</strong> <span style="font-size: 11px; word-break: break-all;">${analysis.url}</span>
       </div>
-      <div style="margin-top: 10px;">
-        <strong>Risk Level:</strong> <span class="risk-badge ${riskClass}">${riskText} Risk</span>
+
+      <!-- NEW: Risk Spectrum Visualization -->
+      <div style="margin-top: 15px; padding: 15px; background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%); border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+        <div style="text-align: center; margin-bottom: 10px;">
+          <div style="font-size: 16px; font-weight: bold; color: ${spectrumColor}; margin-bottom: 5px;">
+            ${riskCategory}
+          </div>
+          <div style="font-size: 11px; color: #555; font-style: italic;">
+            ${riskDescription}
+          </div>
+        </div>
+
+        <!-- Risk Spectrum Bar -->
+        <div style="margin: 15px 0; position: relative;">
+          <div style="height: 20px; background: linear-gradient(to right, #d32f2f 0%, #f44336 20%, #ff9800 40%, #ffc107 55%, #5cb85c 70%, #28a745 100%); border-radius: 10px; position: relative; box-shadow: inset 0 2px 4px rgba(0,0,0,0.2);">
+            <div style="position: absolute; left: ${spectrumPosition}%; top: -8px; transform: translateX(-50%);">
+              <div style="width: 0; height: 0; border-left: 8px solid transparent; border-right: 8px solid transparent; border-top: 12px solid ${spectrumColor}; filter: drop-shadow(0 2px 3px rgba(0,0,0,0.3));"></div>
+            </div>
+          </div>
+          <div style="display: flex; justify-content: space-between; margin-top: 8px; font-size: 9px; color: #666;">
+            <span>0<br>Critical</span>
+            <span>25<br>High Risk</span>
+            <span>40<br>Caution</span>
+            <span>55<br>Moderate</span>
+            <span>70<br>Likely OK</span>
+            <span>100<br>Trusted</span>
+          </div>
+        </div>
+
+        <!-- Trust Score Display -->
+        <div style="text-align: center; margin-top: 12px;">
+          <strong>Trust Score:</strong>
+          <span style="font-size: 24px; font-weight: bold; color: ${spectrumColor}; text-shadow: 0 1px 2px rgba(0,0,0,0.1);">
+            ${analysis.score}/100
+          </span>
+        </div>
       </div>
-      <div style="margin-top: 10px;">
-        <strong>Trust Score:</strong> <span style="font-size: 18px; font-weight: bold; color: ${analysis.score >= 70 ? '#28a745' : analysis.score >= 40 ? '#ffc107' : '#dc3545'}">${analysis.score}/100</span>
-      </div>
+
       ${analysis.confidence ? confidenceBar : ''}
       ${analysisMethod}
       ${conferenceInfoHtml}

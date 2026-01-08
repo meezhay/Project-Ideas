@@ -192,6 +192,11 @@ class MLConferenceAnalyzer {
       hasMissingTitle: false,
       isRegistrationPage: false,
       hasRegisterUrgency: false,
+      hasOrganizingInstitution: false,      // NEW
+      hasPeerReviewProcess: false,          // NEW
+      hasProceedings: false,                // NEW
+      hasEstablishedSeries: false,          // NEW
+      hasAcademicPartnership: false,        // NEW
       score: 50  // Start neutral
     };
 
@@ -282,6 +287,101 @@ class MLConferenceAnalyzer {
     const shortWords = words.filter(w => w.length <= 3).length;
     if (words.length > 0 && shortWords / words.length > 0.5) {
       features.score -= 10;
+    }
+
+    // NEW: Check for organizing institution/university affiliation
+    const institutionPatterns = [
+      /organized?\s+by\s+.{0,50}(university|institute|college|school)/i,
+      /host(ed)?\s+by\s+.{0,50}(university|institute|college)/i,
+      /\b(university|institute)\s+of\s+\w+/i,
+      /(technical|organizing)\s+committee\s*:/i,
+      /department\s+of\s+\w+/i
+    ];
+
+    for (const pattern of institutionPatterns) {
+      if (pattern.test(textLower)) {
+        features.hasOrganizingInstitution = true;
+        features.score += 15; // POSITIVE signal
+        break;
+      }
+    }
+
+    if (!features.hasOrganizingInstitution && features.textLength > 500) {
+      features.score -= 15; // Missing institution info is suspicious
+    }
+
+    // NEW: Check for peer review process description
+    const peerReviewPatterns = [
+      /peer[\s-]review(ed)?/i,
+      /double[\s-]blind\s+review/i,
+      /single[\s-]blind\s+review/i,
+      /review\s+process/i,
+      /reviewing\s+committee/i,
+      /paper\s+review/i,
+      /manuscript\s+review/i
+    ];
+
+    for (const pattern of peerReviewPatterns) {
+      if (pattern.test(textLower)) {
+        features.hasPeerReviewProcess = true;
+        features.score += 12; // POSITIVE signal
+        break;
+      }
+    }
+
+    if (!features.hasPeerReviewProcess && features.textLength > 500) {
+      features.score -= 12; // Missing peer review info is concerning
+    }
+
+    // NEW: Check for past conference proceedings/links
+    const proceedingsPatterns = [
+      /proceedings/i,
+      /previous\s+(conference|edition|year)s?/i,
+      /past\s+(conference|edition)s?/i,
+      /\d{4}\s+(conference|proceedings|edition)/i,
+      /(springer|ieee|acm|elsevier)\s+(proceedings|xplore|digital library)/i,
+      /published\s+in/i
+    ];
+
+    for (const pattern of proceedingsPatterns) {
+      if (pattern.test(textLower)) {
+        features.hasProceedings = true;
+        features.score += 18; // STRONG positive signal
+        break;
+      }
+    }
+
+    // NEW: Check for established conference series
+    const seriesPatterns = [
+      /\b(\d{1,2})(st|nd|rd|th)\s+(annual|international)/i,
+      /\b(annual|biennial)\s+conference/i,
+      /(since|established)\s+\d{4}/i,
+      /conference\s+series/i
+    ];
+
+    for (const pattern of seriesPatterns) {
+      if (pattern.test(textLower)) {
+        features.hasEstablishedSeries = true;
+        features.score += 20; // STRONG positive signal
+        break;
+      }
+    }
+
+    // NEW: Check for academic society partnerships
+    const partnershipPatterns = [
+      /(sponsored|supported|endorsed)\s+by\s+.{0,50}(ieee|acm|springer|elsevier)/i,
+      /in\s+cooperation\s+with\s+.{0,50}(ieee|acm)/i,
+      /technical\s+co[\s-]?sponsor/i,
+      /(ieee|acm|springer|elsevier).{0,30}(partner|sponsor|society)/i,
+      /academic\s+partner/i
+    ];
+
+    for (const pattern of partnershipPatterns) {
+      if (pattern.test(textLower)) {
+        features.hasAcademicPartnership = true;
+        features.score += 25; // VERY STRONG positive signal
+        break;
+      }
     }
 
     features.score = Math.max(0, Math.min(100, features.score));
@@ -740,6 +840,31 @@ class MLConferenceAnalyzer {
     }
     if (features.content.professionalismScore < 40) {
       flags.push({ icon: '⚠️', text: 'Low content professionalism score', severity: 'medium' });
+    }
+
+    // NEW: Legitimacy markers (POSITIVE signals)
+    if (features.content.hasOrganizingInstitution) {
+      positiveSignals.push({ icon: '✅', text: 'Organizing institution/university affiliation identified', severity: 'positive' });
+    } else if (features.content.textLength > 500) {
+      flags.push({ icon: '⚠️', text: 'No clear organizing institution or university affiliation', severity: 'medium' });
+    }
+
+    if (features.content.hasPeerReviewProcess) {
+      positiveSignals.push({ icon: '✅', text: 'Peer review process described', severity: 'positive' });
+    } else if (features.content.textLength > 500) {
+      flags.push({ icon: '⚠️', text: 'No peer review process mentioned', severity: 'medium' });
+    }
+
+    if (features.content.hasProceedings) {
+      positiveSignals.push({ icon: '✅', text: 'Past proceedings or publication history found', severity: 'positive' });
+    }
+
+    if (features.content.hasEstablishedSeries) {
+      positiveSignals.push({ icon: '✅', text: 'Established conference series (e.g., "15th Annual...")', severity: 'positive' });
+    }
+
+    if (features.content.hasAcademicPartnership) {
+      positiveSignals.push({ icon: '✅', text: 'Academic society partnership or sponsorship (IEEE, ACM, etc.)', severity: 'positive' });
     }
 
     // Pattern flags
